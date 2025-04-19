@@ -1,4 +1,4 @@
-// chat_tview_client.go
+// client.go
 package main
 
 import (
@@ -49,13 +49,14 @@ func listenForMessages() {
 func updateUserList(line string) {
 	parts := strings.Split(strings.TrimPrefix(line, "All users: "), ", ")
 	userList.Clear()
-	for _, part := range parts {
-		user := strings.TrimSpace(part)
-		if user != "" {
-			userList.AddItem(user, "", 0, nil)
+	for _, entry := range parts {
+		entry = strings.TrimSpace(entry)
+		if entry != "" {
+			userList.AddItem(entry, "", 0, nil)
 		}
 	}
 }
+
 
 func sendMessage(text string) {
 	if conn == nil {

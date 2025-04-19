@@ -1,16 +1,19 @@
 # server/Makefile
 build:
-	@echo "Initializing go module if needed..."
-	@test -f go.mod || go mod init server
-	go build -o chat-server chat_server.go utils.go
+	@echo Initializing Go module...
+	if not exist go.mod go mod init server
+	@echo Building server...
+	go build -o server.exe server.go utils.go
 
 run: build
-	./chat-server
+	@echo Running server...
+	server.exe
 
-gen-cert:
-	@if [ ! -f cert.pem ] || [ ! -f key.pem ]; then \
-		echo "Generating TLS certificate..."; \
-		openssl req -x509 -newkey rsa:2048 -keyout key.pem -out cert.pem -days 365 -nodes -subj "/CN=localhost"; \
-	else \
-		echo "cert.pem and key.pem already exist, skipping."; \
-	fi
+rebuild:
+	@echo Cleaning server...
+	del /f /q server.exe go.mod go.sum history.log status.json 2>nul
+	del /f /q ..\tls\cert.pem ..\tls\key.pem 2>nul
+	@make run
+
+start:
+	@if not exist server.exe ( make rebuild ) else ( make run )

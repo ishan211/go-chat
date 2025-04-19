@@ -1,4 +1,4 @@
-// chat_server.go
+// server.go
 package main
 
 import (
@@ -40,7 +40,7 @@ func broadcast(sender string, msg string, privateTo string) {
 
 	senderClient, senderExists := clients[sender]
 	if sender != "Server" && (!senderExists || senderClient == nil) {
-		fmt.Printf("[x] broadcast(): sender %s not found\n", sender)
+		fmt.Printf("❌ broadcast(): sender %s not found\n", sender)
 		return
 	}
 
@@ -50,9 +50,8 @@ func broadcast(sender string, msg string, privateTo string) {
 			receiver.history = append(receiver.history, "[PM] "+formatted)
 			senderClient.send <- "[PM to " + privateTo + "] " + formatted
 			senderClient.history = append(senderClient.history, "[PM to "+privateTo+"] "+formatted)
-			AppendToHistory("[PM to "+privateTo+"] " + formatted)
 		} else {
-			senderClient.send <- "[x] User not found or offline"
+			senderClient.send <- "❌ User not found or offline"
 		}
 		return
 	}
@@ -65,7 +64,6 @@ func broadcast(sender string, msg string, privateTo string) {
 	}
 
 	messageID++
-	AppendToHistory(formatted)
 }
 
 func handleClient(client *Client) {
@@ -74,7 +72,6 @@ func handleClient(client *Client) {
 		client.connected = false
 		client.status = "disconnected"
 		clientsMu.Unlock()
-		SaveStatuses(clients)
 		client.conn.Close()
 		broadcast("Server", fmt.Sprintf("%s has disconnected.", client.username), "")
 	}()
@@ -87,7 +84,7 @@ func handleClient(client *Client) {
 		if strings.HasPrefix(text, "/msg ") {
 			parts := strings.SplitN(text, " ", 3)
 			if len(parts) < 3 {
-				client.send <- "[x] Usage: /msg username message"
+				client.send <- "❌ Usage: /msg username message"
 				continue
 			}
 			broadcast(client.username, parts[2], parts[1])
@@ -101,36 +98,29 @@ func handleClient(client *Client) {
 				continue
 			}
 			client.status = newStatus
-			SaveStatuses(clients)
-
-		case text == "/who":
-			clientsMu.Lock()
-			var online []string
-			for name, c := range clients {
-				if c.connected {
-					online = append(online, fmt.Sprintf("%s (%s)", name, c.status))
-				}
-			}
-			client.send <- "Online: " + strings.Join(online, ", ")
-			clientsMu.Unlock()
 
 		case text == "/users":
 			clientsMu.Lock()
 			var others []string
 			for name, c := range clients {
+				displayStatus := c.status
+				if displayStatus == "typing" && time.Since(c.lastTypedTime) > 2*time.Second {
+					displayStatus = "available"
+				}
 				if name != client.username {
-					others = append(others, fmt.Sprintf("%s [%s]", name, c.status))
+					others = append(others, fmt.Sprintf("%s [%s]", name, displayStatus))
 				}
 			}
 			sort.SliceStable(others, func(i, j int) bool {
 				return strings.Split(others[i], " ")[1] < strings.Split(others[j], " ")[1]
 			})
-			fullList := append([]string{fmt.Sprintf("%s [%s]", client.username, client.status)}, others...)
+			selfStatus := client.status
+			if selfStatus == "typing" && time.Since(client.lastTypedTime) > 2*time.Second {
+				selfStatus = "available"
+			}
+			fullList := append([]string{fmt.Sprintf("%s [%s]", client.username, selfStatus)}, others...)
 			client.send <- "All users: " + strings.Join(fullList, ", ")
 			clientsMu.Unlock()
-
-		case text == "/help":
-			client.send <- "/msg <user> <msg>, /who, /users, /status <status>, /help"
 
 		default:
 			broadcast(client.username, text, "")
@@ -169,7 +159,7 @@ func main() {
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
-			log.Fatal("[x] Failed to generate TLS cert:", err)
+			log.Fatal("❌ Failed to generate TLS cert:", err)
 		}
 	}
 
@@ -182,12 +172,6 @@ func main() {
 
 	ip := getLocalIP()
 	fmt.Printf("\n📡 Server running at: %s:9000\n", ip)
-
-	// Wipe log on start
-	os.WriteFile("history.log", []byte(""), 0644)
-
-	LoadHistory()
-	statuses := LoadStatuses()
 
 	for {
 		conn, err := ln.Accept()
@@ -208,7 +192,7 @@ func main() {
 			client, exists := clients[username]
 			if exists {
 				if client.connected {
-					fmt.Fprintln(conn, "[x] User already online")
+					fmt.Fprintln(conn, "❌ User already online")
 					clientsMu.Unlock()
 					conn.Close()
 					return
@@ -225,16 +209,13 @@ func main() {
 					history:   []string{},
 					status:    "available",
 				}
-				if prevStatus, ok := statuses[username]; ok {
-					client.status = prevStatus
-				}
 				clients[username] = client
 			}
 			clientsMu.Unlock()
 
 			go clientWriter(client)
 
-			for _, msg := range ReadFullHistory() {
+			for _, msg := range client.history {
 				client.send <- "[History] " + msg
 			}
 
